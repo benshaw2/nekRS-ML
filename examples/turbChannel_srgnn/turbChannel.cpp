@@ -102,15 +102,26 @@ void outfld_wrapper(nrs_t *nrs, std::unique_ptr<iofld> &checkpointWriter, const 
   }
  }
 
- if (platform->options.compareArgs("VELOCITY SQUARED CHECKPOINTING", "TRUE")) {
-   for (int j = 0; j < 3; j++) {
-    std::vector<occa::memory> o_Vsq;
-    for (int i = 0; i < visMesh->dim; i++) {
-      o_V.push_back(nrs->o_U.slice(i * nrs->fieldOffset, visMesh->Nlocal));
+ // Compute the velocity squared components needed for Reynolds stress calculation
+ // Grouped into diagonal and off-diagonal components
+ if (platform->options.compareArgs("REYNOLDS STRESS", "TRUE")) {
+  std::vector<occa::memory> o_VsqDiag[nrs->fieldOffset * nrs->dim]; // u_x.u_x, u_y.u_y, u_z.u_z
+  std::vector<occa::memory> o_VsqOffDiag[nrs->fieldOffset * nrs->dim]; // u_x.u_y, u_x.u_z, u_y.u_z
+  std::string fldNameDiag = "velocitySquaredDiag";
+  std::string fldNameOffDiag = "velocitySquaredOffDiag";
+  for (int i=0; i < nrs->fieldOffset, i++) {
+    for (int j=0; i < nrs->dim; j++) {
+      o_VsqDiag[i + nrs->fieldOffset * j] = nrs->o_P[i + nrs->fieldOffset * j] * nrs->o_P[i + nrs->fieldOffset * j];
     }
-    checkpointWriter->addVariable("velocity_squared", o_V);
-   }
   }
+  for (int i=0; i < nrs->fieldOffset, i++) {
+    o_VsqOffDiag[i + nrs->fieldOffset * 0] = nrs->o_P[i + nrs->fieldOffset * 0] * nrs->o_P[i + nrs->fieldOffset * 1];
+    o_VsqOffDiag[i + nrs->fieldOffset * 1] = nrs->o_P[i + nrs->fieldOffset * 0] * nrs->o_P[i + nrs->fieldOffset * 2];
+    o_VsqOffDiag[i + nrs->fieldOffset * 2] = nrs->o_P[i + nrs->fieldOffset * 1] * nrs->o_P[i + nrs->fieldOffset * 2];
+  }
+  checkpointWriter->addVariable(fldNameDiag, o_VsqDiag);
+  checkpointWriter->addVariable(fldNameOffDiag, o_VsqOffDiag);
+ }
 
  const auto outXYZ = platform->options.compareArgs("CHECKPOINT OUTPUT MESH", "TRUE");
  const auto FP64 = platform->options.compareArgs("CHECKPOINT PRECISION", "FP64");

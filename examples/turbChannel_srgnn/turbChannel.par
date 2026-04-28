@@ -32,3 +32,4 @@ betaY = 2.2
 [ML]
 gnnPolynomialOrder = 1
 srGNNMultiscale = true
+reynoldsStress = true
