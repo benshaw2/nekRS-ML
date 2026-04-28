@@ -1,19 +1,28 @@
 # @package _global_
 seed: 42
-epochs: 1
+epochs: 2 #1
 backend: null
 master_addr: none
 master_port: 2345
 lr_init: 0.001
 # momentum: 0.5
 num_threads: 1
-logfreq: 100
-ckptfreq: 10
-batch_size: 4
-test_batch_size: 4
+logfreq: 1 #100
+ckptfreq: 100000 #10
+batch_size: 1 #4
+test_batch_size: 1 #4
 precision: fp32
 fp16_allreduce: False
 restart: False
+
+# equivariance stuff
+equivariance:
+  enabled: true
+  gamma:
+    start: 0.5
+    end: 0.5
+    steps: 1 #(constant gamma)
+
 
 # architecture stuff 
 model_name: gnn
