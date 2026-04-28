@@ -257,6 +257,7 @@ static std::vector<std::string> mlKeys = {
     {"adiosStream"},
     {"gnnPolynomialOrder"},
     {"srGNNMultiscale"},
+    {"reynoldsStress"},
 };
 
 static std::vector<std::string> deprecatedKeys = {
@@ -2669,6 +2670,18 @@ void parseMLSection(const int rank, setupAide &options, inipp::Ini *ini)
     }
   } else {
     options.setArgs("SR GNN MULTISCALE", "FALSE");
+  }
+
+  std::string reStressStr;
+  if (ini->extract("ml", "reynoldsStress", reStressStr)) {
+    bool reStress= checkForTrue(reStressStr);
+    if (reStress) {
+      options.setArgs("REYNOLDS STRESS", "TRUE");
+    } else {
+      options.setArgs("REYNOLDS STRESS", "FALSE");
+    }
+  } else {
+    options.setArgs("REYNOLDS STRESS", "FALSE");
   }
 }
 
