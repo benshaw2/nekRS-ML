@@ -43,3 +43,7 @@ combine-as-imports = true
 dev = [
     "ruff>=0.13.2",
 ]
+
+[tool.pytest.ini_options]
+testpaths = ["sr-gnn/tests"]
+pythonpath = ["sr-gnn"]

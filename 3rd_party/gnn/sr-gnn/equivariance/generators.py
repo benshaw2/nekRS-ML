@@ -6,11 +6,11 @@ from symdisc.enforcement.regularization import (
     as_field_lastdim,
     lift_field_to_flat_segment,
     sum_fields,
-    pad_field,
 )
 
+import torch
 
-def build_node_generators_velocity():
+def build_node_generators_velocity(with_names=False):
     """
     Node generators for velocity features u ∈ ℝ³.
 
@@ -26,9 +26,13 @@ def build_node_generators_velocity():
         backend="torch",
     )
 
+    X = [as_field_lastdim(f, d=3) for f in fields]
+
     # act on last dimension
-    X_nodes = [as_field_lastdim(f, d=3) for f in fields]
-    return X_nodes
+    #X_nodes = [as_field_lastdim(f, d=3) for f in fields]
+    if with_names:
+        return X, names
+    return X
 
 
 
@@ -102,4 +106,46 @@ def build_edge_generators_rotations(
     return R_edges
 
 
+def pad_field(field, *, before=0, after=0):
+    """
+    Pad a vector field with invariant (zero) dimensions
+    before and/or after its action.
 
+    Parameters
+    ----------
+    field : callable
+        A vector field acting on ℝ^d
+    before : int
+        Number of zero dimensions prepended
+    after : int
+        Number of zero dimensions appended
+    """
+
+    if before == 0 and after == 0:
+        return field
+
+    def padded(x, *, meta=None, grad=None):
+        '''# x is the *full* flat vector
+        # extract the slice this field acts on
+        core = x[before : x.shape[0] - after]
+        delta_core = field(core)
+
+        # assemble full delta
+        delta = torch.zeros_like(x)
+        delta[before : before + delta_core.shape[0]] = delta_core
+        return delta'''
+
+        # x: (B, D)
+        B, D = x.shape
+
+        # slice out the active block
+        core = x[:, before : D - after]
+
+        delta_core = field(core, meta=meta, grad=grad)
+
+        delta = torch.zeros_like(x)
+        delta[:, before : before + delta_core.shape[1]] = delta_core
+        return delta
+
+
+    return padded

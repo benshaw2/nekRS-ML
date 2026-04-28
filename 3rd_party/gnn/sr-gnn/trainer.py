@@ -26,6 +26,8 @@ from equivariance import (
 #from equivariance.model_wrapper import make_model_flat
 from symdisc.enforcement.regularization import (
     forward_with_equivariance_penalty,
+    lift_field_to_flat_segment,
+    sum_fields,
 )
 # this is for restarting from a checkpoint: resets the sym scale.
 if hasattr(self, "_sym_scale"):
@@ -424,43 +426,98 @@ class Trainer:
         eps = 1e-10
         x_scaled = (data.x - data.x_mean_lo) / (data.x_std_lo + eps)
 
+
         if self.equiv_enabled:
-            
-            # prepare data
+
+            # (enforce using the scaled data)
+            x_raw = data.x
+            data.x = x_scaled
             x_flat, meta = pack_flat_nekrs(data)
-
-            num_edges = data.edge_index_lo.shape[1]
             offsets = meta["offsets"]
+            data.x = x_raw
 
-            # construct vector field generators
-            X_nodes = build_node_generators_velocity()
-            X_edges = build_edge_generators_rotations(
+            num_nodes = data.x.shape[0]
+            num_edges = data.edge_index_lo.shape[1]
+
+            # -----------------------------------------
+            # Base generators (ℝ³)
+            # -----------------------------------------
+            X_nodes_base = build_node_generators_velocity()      # 6 generators
+            X_edges_rot = build_edge_generators_rotations(      # 3 rotation generators
                 num_edges=num_edges,
                 dx_offset=offsets["dx"],
                 du_offset=offsets["du"],
             )
 
-            X_in = X_nodes + X_edges
-            Y_out = build_output_generators_velocity()
+            # -----------------------------------------
+            # Lift node generators to flat space
+            # -----------------------------------------
+            X_nodes = [
+                lift_field_to_flat_segment(
+                    as_field_lastdim(f, d=3),
+                    count=num_nodes,
+                    dim=3,
+                    offset=offsets["u"],
+                )
+                for f in X_nodes_base
+            ]
 
-            # wrap the model
+            # -----------------------------------------
+            # Combine node + edge actions per generator
+            # -----------------------------------------
+            X_in = []
+
+            # First 3 generators are rotations
+            for i in range(3):
+                X_in.append(sum_fields(X_nodes[i], X_edges_rot[i]))
+
+            # Last 3 generators are Galilean translations
+            for i in range(3, 6):
+                X_in.append(X_nodes[i])   # no edge action
+
+            # -----------------------------------------
+            # Output generators (same 6 generators)
+            # -----------------------------------------
+            Y_nodes_base = build_output_generators_velocity()
+
+            Y_nodes = [
+                lift_field_to_flat_segment(
+                    as_field_lastdim(f, d=3),
+                    count=num_nodes,
+                    dim=3,
+                    offset=offsets["u"],
+                )
+                for f in Y_nodes_base
+            ]
+
+            Y_out = Y_nodes  # already length 6, matches X_in
+
+            # -----------------------------------------
+            # Wrapped model + symmetry penalty
+            # -----------------------------------------
             model_flat = make_model_flat(
                 model=self.model,
                 data=data,
                 device=self.device,
             )
 
-            # is this is the right spot??
             gamma = self.gamma_schedule(self.training_iter)
 
-            y_flat, sym_pen = forward_with_equivariance_penalty(
+            '''y_flat, sym_pen = forward_with_equivariance_penalty(
                 model=lambda xf: model_flat(xf, meta),
                 X_in=X_in,
                 Y_out=Y_out,
                 x=x_flat,
+            )'''
+            y_flat, sym_pen = forward_with_equivariance_penalty(
+                model=lambda xf: model_flat(xf[0], meta).unsqueeze(0),
+                X_in=X_in,
+                Y_out=Y_out,
+                x=x_flat.unsqueeze(0),
             )
 
-            out_gnn = y_flat.reshape(-1, data.y.shape[1]) #reshape_as(target)
+            out_gnn = y_flat[0].reshape(-1, data.y.shape[1])
+            #out_gnn = y_flat.reshape(-1, data.y.shape[1])
 
         else:
             # 2) evaluate model

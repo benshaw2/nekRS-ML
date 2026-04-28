@@ -4,6 +4,7 @@ from .generators import (
     build_node_generators_velocity,
     build_edge_generators_rotations,
     build_output_generators_velocity,
+    pad_field
 )
 
 from .packing import (
@@ -14,4 +15,4 @@ from .packing import (
 
 from .model_wrapper import make_model_flat
 
-from .gamma_cfg import make_gamma_schedule
+from .gamma_schedule import make_gamma_schedule
