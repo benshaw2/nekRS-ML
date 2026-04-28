@@ -4,11 +4,17 @@ import hydra
 from omegaconf import DictConfig, OmegaConf
 import time
 
-from mpi4py import MPI
+try:
+    from mpi4py import MPI
 
-COMM = MPI.COMM_WORLD
-SIZE = COMM.Get_size()
-RANK = COMM.Get_rank()
+    COMM = MPI.COMM_WORLD
+    SIZE = COMM.Get_size()
+    RANK = COMM.Get_rank()
+except Exception:
+    COMM = None
+    SIZE = 1
+    RANK = 0
+
 LOCAL_RANK = int(os.getenv("PALS_LOCAL_RANKID"))
 LOCAL_SIZE = int(os.getenv("PALS_LOCAL_SIZE"))
 HOST_NAME = MPI.Get_processor_name()
