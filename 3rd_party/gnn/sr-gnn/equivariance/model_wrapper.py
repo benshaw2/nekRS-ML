@@ -33,7 +33,7 @@ def make_model_flat(
     """
 
     # cache quantities used in closure
-    model.eval()  # symmetry penalties are differentiable; this just disables dropout
+    # don't do this: #model.eval()  # symmetry penalties are differentiable; this just disables dropout
 
     # pull out things the model needs but are not in x_flat
     edge_index_lo = data.edge_index_lo

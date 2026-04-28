@@ -14,6 +14,23 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.nn.parallel import DistributedDataParallel as DDP
 
+#### Equivariance Utilities
+from equivariance import (
+    pack_flat_nekrs,
+    build_node_generators_velocity,
+    build_edge_generators_rotations,
+    build_output_generators_velocity,
+    make_gamma_schedule,
+    make_model_flat,
+)
+#from equivariance.model_wrapper import make_model_flat
+from symdisc.enforcement.regularization import (
+    forward_with_equivariance_penalty,
+)
+# this is for restarting from a checkpoint: resets the sym scale.
+if hasattr(self, "_sym_scale"):
+    del self._sym_scale
+
 # PyTorch Geometric
 import torch_geometric
 import torch_geometric.nn as tgnn
@@ -152,6 +169,12 @@ class Trainer:
                 broadcast_buffers=False,
                 gradient_as_bucket_view=True,
             )
+
+        # read equivariance setting.
+        self.equiv_enabled = getattr(cfg, "equivariance", {}).get("enabled", False)
+        if self.equiv_enabled:
+            gamma_cfg = cfg.equivariance.get("gamma", {})
+            self.gamma_schedule = make_gamma_schedule(**gamma_cfg)
 
     def init_process_group(self, master_addr: str, master_port: int):
         os.environ["RANK"] = str(self.rank)
@@ -401,21 +424,60 @@ class Trainer:
         eps = 1e-10
         x_scaled = (data.x - data.x_mean_lo) / (data.x_std_lo + eps)
 
-        # 2) evaluate model
-        # t_2 = time.time()
-        out_gnn = self.model(
-            x=x_scaled,
-            mask=data.central_element_mask,
-            edge_index_lo=data.edge_index_lo,
-            edge_index_hi=data.edge_index_hi,
-            pos_lo=data.pos_norm_lo,
-            pos_hi=data.pos_norm_hi,
-            batch_lo=data.x_batch,
-            batch_hi=data.y_batch,
-            edge_index_coin=edge_index_coin,
-            degree=degree,
-        )
-        # t_2 = time.time() - t_2
+        if self.equiv_enabled:
+            
+            # prepare data
+            x_flat, meta = pack_flat_nekrs(data)
+
+            num_edges = data.edge_index_lo.shape[1]
+            offsets = meta["offsets"]
+
+            # construct vector field generators
+            X_nodes = build_node_generators_velocity()
+            X_edges = build_edge_generators_rotations(
+                num_edges=num_edges,
+                dx_offset=offsets["dx"],
+                du_offset=offsets["du"],
+            )
+
+            X_in = X_nodes + X_edges
+            Y_out = build_output_generators_velocity()
+
+            # wrap the model
+            model_flat = make_model_flat(
+                model=self.model,
+                data=data,
+                device=self.device,
+            )
+
+            # is this is the right spot??
+            gamma = self.gamma_schedule(self.training_iter)
+
+            y_flat, sym_pen = forward_with_equivariance_penalty(
+                model=lambda xf: model_flat(xf, meta),
+                X_in=X_in,
+                Y_out=Y_out,
+                x=x_flat,
+            )
+
+            out_gnn = y_flat.reshape(-1, data.y.shape[1]) #reshape_as(target)
+
+        else:
+            # 2) evaluate model
+            # t_2 = time.time()
+            out_gnn = self.model(
+                x=x_scaled,
+                mask=data.central_element_mask,
+                edge_index_lo=data.edge_index_lo,
+                edge_index_hi=data.edge_index_hi,
+                pos_lo=data.pos_norm_lo,
+                pos_hi=data.pos_norm_hi,
+                batch_lo=data.x_batch,
+                batch_hi=data.y_batch,
+                edge_index_coin=edge_index_coin,
+                degree=degree,
+            )
+            # t_2 = time.time() - t_2
 
         # 3) set the target
         if self.cfg.use_residual:
@@ -454,7 +516,18 @@ class Trainer:
         # 4) evaluate loss
         self.comm.Barrier()
         # loss = self.loss_fn(out_gnn, target) # vanilla mse
-        loss = torch.mean(data.node_weight * (out_gnn - target) ** 2)
+        #~~~~ adjust the loss with equivariance regularization
+        #loss = torch.mean(data.node_weight * (out_gnn - target) ** 2)
+        loss_m = torch.mean(data.node_weight * (out_gnn - target) ** 2)
+
+        if self.equiv_enabled:
+            if not hasattr(self, "_sym_scale"):
+                self._sym_scale = (
+                    loss_m.detach() / (sym_pen.detach() + 1e-12)
+                )
+            loss = (1 - gamma) * loss_m + gamma * sym_pen * self._sym_scale
+        else:
+            loss = loss_m
 
         if self.scaler is not None and isinstance(self.scaler, GradScaler):
             self.scaler.scale(loss).backward()

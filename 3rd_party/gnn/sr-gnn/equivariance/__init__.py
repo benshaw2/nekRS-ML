@@ -13,3 +13,5 @@ from .packing import (
 )
 
 from .model_wrapper import make_model_flat
+
+from .gamma_cfg import make_gamma_schedule
