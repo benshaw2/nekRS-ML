@@ -65,6 +65,7 @@ Finally, simply execute the run script **from the compute nodes** with
 ./run.sh
 ```
 
+
 The `run.sh` script is composed of five steps:
 
 - A precompilation step in which nekRS is run with the --build-only flag. This is done such that the `.cache` directory can be built beforehand.
