@@ -100,17 +100,39 @@ void outfld_wrapper(nrs_t *nrs, std::unique_ptr<iofld> &checkpointWriter, const 
     }
    }
   }
- }
 
- if (platform->options.compareArgs("VELOCITY SQUARED CHECKPOINTING", "TRUE")) {
-   for (int j = 0; j < 3; j++) {
+  // Pointwise u_i*u_j on device for Reynolds stress checkpoints (diag: i==j; off-diag: i<j)
+  if (platform->options.compareArgs("REYNOLDS STRESS", "TRUE")) {
+   const dlong Nloc = visMesh->Nlocal;
+   const int dim = visMesh->dim;
+   //std::vector<occa::memory> o_VsqDiag;
+   //std::vector<occa::memory> o_VsqOffDiag;
+   for (int i = 0; i < dim; i++) {
     std::vector<occa::memory> o_Vsq;
-    for (int i = 0; i < visMesh->dim; i++) {
-      o_V.push_back(nrs->o_U.slice(i * nrs->fieldOffset, visMesh->Nlocal));
-    }
-    checkpointWriter->addVariable("velocity_squared", o_V);
+    auto o_Ui = nrs->o_U.slice(i * nrs->fieldOffset, Nloc);
+    auto o_ii = platform->device.malloc<dfloat>(Nloc);
+    platform->linAlg->axmyz(Nloc, 1.0, o_Ui, o_Ui, o_ii);
+    //o_VsqDiag.push_back(o_ii);
+    o_Vsq.push_back(o_ii);
+    checkpointWriter->addVariable("scalar" + scalarDigitStr(i+nrs->Nscalar), o_Vsq);
    }
+   for (int i = 0; i < dim; i++) {
+    for (int j = i + 1; j < dim; j++) {
+     int idx = i + j;
+     std::vector<occa::memory> o_Vsq;
+     auto o_Ui = nrs->o_U.slice(i * nrs->fieldOffset, Nloc);
+     auto o_Uj = nrs->o_U.slice(j * nrs->fieldOffset, Nloc);
+     auto o_ij = platform->device.malloc<dfloat>(Nloc);
+     platform->linAlg->axmyz(Nloc, 1.0, o_Ui, o_Uj, o_ij);
+     //o_VsqOffDiag.push_back(o_ij);
+     o_Vsq.push_back(o_ij);
+     checkpointWriter->addVariable("scalar" + scalarDigitStr(idx+dim+nrs->Nscalar), o_Vsq);
+    }
+   }
+   //checkpointWriter->addVariable("velocitySquaredDiag", o_VsqDiag);
+   //checkpointWriter->addVariable("velocitySquaredOffDiag", o_VsqOffDiag);
   }
+ }
 
  const auto outXYZ = platform->options.compareArgs("CHECKPOINT OUTPUT MESH", "TRUE");
  const auto FP64 = platform->options.compareArgs("CHECKPOINT PRECISION", "FP64");
