@@ -106,6 +106,51 @@ def build_edge_generators_rotations(
     return R_edges
 
 
+def build_output_generators_mandel_stress():
+    labels = ["w1","w2","w3","w4","w5","w6"]
+    pair = _pairer_from_labels(labels)
+    d = 6
+
+    fields, names = generate_euclidean_killing_fields_with_names(
+        d=d,
+        include_translations=False,
+        include_rotations=True,
+        backend="torch"
+    )
+
+    name_to_field = {n: f for f, n in zip(fields, names)}
+
+    def R(a, b):
+        i, j = pair(a, b)
+        key = f"R_{i}_{j}" if i < j else f"R_{j}_{i}"
+        return as_field_lastdim(name_to_field[key], d=d)
+
+    s2 = math.sqrt(2.0)
+
+    Y1 = sum_fields(
+        R("w2","w4"),   # (T12, T22)
+        R("w1","w2"),   # (T11, T12)
+        R("w3","w5"),   # (T13, T23)
+        weights=[s2, s2, 1.0]
+    )
+
+    Y2 = sum_fields(
+        R("w1","w3"),
+        R("w3","w6"),
+        R("w2","w5"),
+        weights=[s2, s2, 1.0]
+    )
+
+    Y3 = sum_fields(
+        R("w4","w5"),
+        R("w5","w6"),
+        R("w2","w3"),
+        weights=[s2, s2, 1.0]
+    )
+
+    return Y1, Y2, Y3
+
+
 def pad_field(field, *, before=0, after=0):
     """
     Pad a vector field with invariant (zero) dimensions
